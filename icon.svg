@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#15181C"/>
+  <rect x="96" y="112" width="320" height="200" rx="12" fill="#D62828"/>
+  <text x="256" y="252" font-family="Oswald, Arial Narrow, sans-serif" font-size="128" font-weight="600"
+        fill="#FFFFFF" text-anchor="middle" letter-spacing="8">ПГ</text>
+  <text x="256" y="420" font-family="JetBrains Mono, Courier New, monospace" font-size="86" font-weight="700"
+        fill="#E8ECF1" text-anchor="middle">01</text>
+</svg>

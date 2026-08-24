@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>ППВ — источники водоснабжения</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15181C">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --graphite:#15181C; --panel:#1E232A; --panel-2:#272E37; --line:#3A434F;
+    --ink:#E8ECF1; --ink-dim:#93A0AF;
+    --signal:#D62828; --water:#2A7FBF; --hold:#E0A200; --dead:#6B7480; --ok:#3FA34D; --unknown:#7A5CA8;
+  }
+  html,body{margin:0;padding:0}
+  body{background:var(--graphite);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;
+    font-size:15px;line-height:1.45;-webkit-text-size-adjust:100%;
+    padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+  .wrap{max-width:860px;margin:0 auto;padding:0 0 60px}
+
+  header{position:sticky;top:0;z-index:900;background:var(--graphite);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:baseline;gap:10px;padding:10px 14px 6px;flex-wrap:wrap}
+  .brand h1{font-family:'Oswald',sans-serif;font-weight:600;font-size:18px;letter-spacing:.06em;text-transform:uppercase;margin:0}
+  .brand span{font-size:11px;color:var(--ink-dim)}
+  .gps{display:flex;align-items:center;gap:8px;padding:0 14px 9px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-dim)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dead);flex:none}
+  .dot.live{background:var(--ok);animation:pulse 2.2s infinite}
+  .dot.err{background:var(--signal)}
+  .dot.aim{background:var(--signal);animation:none}
+  @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(63,163,77,0)}100%{box-shadow:0 0 0 0 rgba(63,163,77,0)}}
+  @media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
+  nav{display:grid;grid-template-columns:repeat(4,1fr);background:var(--panel)}
+  nav button{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--ink-dim);
+    font-family:'Oswald',sans-serif;font-size:13px;letter-spacing:.06em;text-transform:uppercase;padding:12px 2px;cursor:pointer}
+  nav button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--signal);background:var(--panel-2)}
+  nav button:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.chip:focus-visible{outline:2px solid #7FB3FF;outline-offset:1px}
+  section[hidden]{display:none}
+
+  #map{height:min(58vh,470px);width:100%;background:var(--panel-2)}
+  .maphint{padding:8px 14px;font-size:12px;color:var(--ink-dim);border-bottom:1px solid var(--line)}
+
+  .aimbar{display:flex;align-items:center;gap:10px;padding:9px 14px;background:#2A1416;border-bottom:1px solid var(--signal);font-size:13px}
+  .aimbar b{font-family:'Oswald',sans-serif;letter-spacing:.06em;text-transform:uppercase;font-size:12px;color:#FF8A8A}
+  .aimbar button{margin-left:auto}
+
+  .plate{display:grid;grid-template-columns:74px 1fr auto;gap:12px;align-items:center;background:var(--panel);
+    border:1px solid var(--line);border-radius:4px;padding:10px;margin:10px 14px 0;cursor:pointer}
+  .plate .tag{background:var(--signal);border-radius:3px;padding:6px 4px;text-align:center;font-family:'Oswald',sans-serif;color:#fff;line-height:1}
+  .plate.water .tag{background:var(--water)}
+  .plate.bad .tag{background:var(--dead)}
+  .plate.hold .tag{background:var(--hold);color:#231A00}
+  .plate.newp .tag{background:var(--unknown)}
+  .plate.newp{border-left:3px solid var(--unknown)}
+  .tag b{display:block;font-size:20px;letter-spacing:.08em}
+  .tag i{display:block;font-style:normal;font-size:10.5px;opacity:.9;margin-top:3px}
+  .meta{min-width:0}
+  .meta .addr{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta .sub{font-size:12px;color:var(--ink-dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dist{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:26px;text-align:right;line-height:1}
+  .dist small{display:block;font-size:10px;font-weight:500;color:var(--ink-dim);letter-spacing:.1em}
+  .plate.bad{opacity:.5}
+  .warn{color:var(--hold)}
+  .rowacts{display:flex;gap:8px;padding:8px 14px 0}
+  .rowacts .btn{flex:1}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--panel-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:4px;padding:9px 12px;font-family:'Oswald',sans-serif;font-size:13px;
+    letter-spacing:.05em;text-transform:uppercase;cursor:pointer;text-decoration:none;white-space:nowrap}
+  .btn.primary{background:var(--signal);border-color:var(--signal);color:#fff}
+  .btn.ghost{background:transparent}
+  .btn:active{transform:translateY(1px)}
+  .btn.sm{padding:7px 10px;font-size:12px}
+
+  .tools{display:flex;gap:8px;padding:12px 14px 0}
+  .tools input{flex:1}
+  .filters{display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px 0}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:12.5px;color:var(--ink-dim);cursor:pointer;background:transparent}
+  .chip[aria-pressed="true"]{background:var(--ink);color:var(--graphite);border-color:var(--ink);font-weight:600}
+  .listhead{display:flex;justify-content:space-between;align-items:baseline;padding:14px 14px 0;
+    font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim)}
+  .empty{padding:34px 20px;text-align:center;color:var(--ink-dim)}
+  .empty b{display:block;font-family:'Oswald',sans-serif;font-size:16px;color:var(--ink);letter-spacing:.05em;margin-bottom:6px;text-transform:uppercase}
+
+  form{padding:14px}
+  fieldset{border:1px solid var(--line);border-radius:4px;padding:12px;margin:0 0 14px}
+  legend{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);padding:0 6px}
+  label{display:block;font-size:12px;color:var(--ink-dim);margin:10px 0 4px}
+  input,select,textarea{width:100%;background:var(--graphite);color:var(--ink);border:1px solid var(--line);
+    border-radius:3px;padding:10px;font-family:inherit;font-size:16px}
+  .mono,input[inputmode=decimal],input[inputmode=numeric]{font-family:'JetBrains Mono',monospace}
+  textarea{min-height:64px;resize:vertical}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .formacts{display:flex;gap:8px;padding:4px 0 0}
+  .formacts .btn{flex:1}
+  .note{font-size:12px;color:var(--ink-dim);margin:12px 0 0}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:2000;background:var(--ink);color:var(--graphite);
+    padding:10px 16px;border-radius:4px;font-size:13.5px;font-weight:600;max-width:92vw;text-align:center}
+  .pin{width:26px;height:26px;border-radius:50% 50% 50% 2px;transform:rotate(45deg);border:2px solid rgba(0,0,0,.35);
+    display:flex;align-items:center;justify-content:center}
+  .pin b{transform:rotate(-45deg);font-family:'Oswald',sans-serif;font-size:11px;color:#fff}
+  .me{width:16px;height:16px;border-radius:50%;background:#7FB3FF;border:3px solid #fff;box-shadow:0 0 0 4px rgba(127,179,255,.3)}
+  .aimdot{width:22px;height:22px;border-radius:50%;border:3px solid var(--signal);background:rgba(214,40,40,.35);box-shadow:0 0 0 4px rgba(214,40,40,.18)}
+  .leaflet-container{font-family:'IBM Plex Sans',sans-serif}
+  .lp{font-size:13px;line-height:1.5;color:#15181C}
+  .lp b{font-family:'Oswald',sans-serif;letter-spacing:.05em}
+  .stat{display:flex;gap:14px;padding:12px 14px;font-size:12.5px;color:var(--ink-dim);flex-wrap:wrap}
+  .stat b{font-family:'JetBrains Mono',monospace;color:var(--ink);font-size:15px;display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="brand">
+    <h1>ППВ · Апшеронский р-н</h1>
+    <span>наружное противопожарное водоснабжение</span>
+  </div>
+  <div class="gps"><span class="dot" id="dot"></span><span id="gpstext">положение не определено</span></div>
+  <nav role="tablist">
+    <button role="tab" id="t-go" aria-selected="true">Выезд</button>
+    <button role="tab" id="t-map" aria-selected="false">Карта</button>
+    <button role="tab" id="t-add" aria-selected="false">Учёт</button>
+    <button role="tab" id="t-base" aria-selected="false">База</button>
+  </nav>
+</header>
+
+<section id="s-go">
+  <div class="aimbar" id="aimbar" hidden>
+    <b>Место вызова</b><span id="aimtext"></span>
+    <button class="btn ghost sm" id="aimclear">Сбросить</button>
+  </div>
+  <div class="tools">
+    <input id="q" placeholder="Поиск: улица или номер источника" aria-label="Поиск">
+    <button class="btn" id="setaim">Место вызова</button>
+  </div>
+  <div class="filters">
+    <button class="chip" id="f-ok" aria-pressed="true">скрыть неисправные</button>
+    <button class="chip" id="f-pg" aria-pressed="true">ПГ</button>
+    <button class="chip" id="f-pv" aria-pressed="true">водоёмы</button>
+  </div>
+  <div class="listhead"><span id="listtitle">Ближайшие источники</span><span id="cnt"></span></div>
+  <div id="list"></div>
+</section>
+
+<section id="s-map" hidden>
+  <div id="map"></div>
+  <div class="maphint" id="maphint">Нажатие на карту задаёт ваше положение, если GPS недоступен.</div>
+  <div class="rowacts" style="padding-top:10px">
+    <button class="btn" id="center">К себе</button>
+    <button class="btn" id="fit">Весь район</button>
+    <button class="btn ghost" id="mapaim">Место вызова</button>
+  </div>
+</section>
+
+<section id="s-add" hidden>
+  <form id="form" autocomplete="off">
+    <fieldset>
+      <legend>Источник</legend>
+      <input type="hidden" id="f-id">
+      <div class="two">
+        <div><label for="f-type">Тип</label>
+          <select id="f-type">
+            <option value="ПГ">ПГ — пожарный гидрант</option>
+            <option value="ПВ">ПВ — пожарный водоём</option>
+            <option value="ПИРС">Пирс / площадка забора</option>
+            <option value="БАШ">Водонапорная башня</option>
+            <option value="ЕСТ">Естественный водоисточник</option>
+          </select></div>
+        <div><label for="f-num">Номер</label><input id="f-num" class="mono" placeholder="14"></div>
+      </div>
+      <label for="f-addr">Адрес / ориентир</label>
+      <input id="f-addr" placeholder="ул. Ленина, 42 — у торца дома">
+      <div class="two">
+        <div><label for="f-status">Состояние</label>
+          <select id="f-status"><option value="ok">Исправен</option><option value="hold">Ограниченно годен</option><option value="bad">Неисправен</option><option value="new">Не обследован</option></select></div>
+        <div><label for="f-check">Проверен</label><input id="f-check" type="date"></div>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Координаты</legend>
+      <div class="two">
+        <div><label for="f-lat">Широта</label><input id="f-lat" inputmode="decimal" placeholder="44.462000"></div>
+        <div><label for="f-lon">Долгота</label><input id="f-lon" inputmode="decimal" placeholder="39.730000"></div>
+      </div>
+      <div class="rowacts" style="padding:10px 0 0">
+        <button type="button" class="btn" id="usegps">Взять с GPS</button>
+        <button type="button" class="btn ghost" id="usemap">Указать на карте</button>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Характеристики</legend>
+      <div class="two">
+        <div><label for="f-net">Сеть</label><select id="f-net"><option value="">—</option><option>кольцевая</option><option>тупиковая</option></select></div>
+        <div><label for="f-dia">Диаметр, мм</label><input id="f-dia" inputmode="numeric" placeholder="100"></div>
+      </div>
+      <div class="two">
+        <div><label for="f-vol">Объём, м³</label><input id="f-vol" inputmode="numeric" placeholder="для водоёмов"></div>
+        <div><label for="f-flow">Водоотдача, л/с</label><input id="f-flow" inputmode="numeric" placeholder="30"></div>
+      </div>
+      <label for="f-note">Примечание</label>
+      <textarea id="f-note" placeholder="Крышка под асфальтом. Зимой подъезд не чистят. Ключ у сторожа."></textarea>
+    </fieldset>
+    <div class="formacts">
+      <button type="submit" class="btn primary">Сохранить</button>
+      <button type="button" class="btn ghost" id="reset">Очистить</button>
+      <button type="button" class="btn ghost" id="del" hidden>Удалить</button>
+    </div>
+  </form>
+</section>
+
+<section id="s-base" hidden>
+  <div class="stat">
+    <div>Всего источников<b id="st-all">0</b></div>
+    <div>Исправных<b id="st-ok">0</b></div>
+    <div>Неисправных<b id="st-bad">0</b></div>
+    <div>Не обследовано<b id="st-new">0</b></div>
+    <div>Проверка просрочена<b id="st-old">0</b></div>
+    <div>Мои правки<b id="st-loc">0</b></div>
+  </div>
+  <form id="who" style="padding:0 14px">
+    <fieldset><legend>Кто вносит</legend>
+      <label for="f-who">Часть / караул</label>
+      <input id="f-who" placeholder="ПСЧ-45, 2 караул">
+      <p class="note">Подставляется в записи — видно, кто вносил и когда.</p>
+    </fieldset>
+    <fieldset><legend>Обмен данными</legend>
+      <div class="rowacts" style="padding:6px 0 0;flex-wrap:wrap">
+        <button type="button" class="btn" id="exp-json">Выгрузить JSON</button>
+        <button type="button" class="btn" id="exp-csv">Выгрузить CSV</button>
+      </div>
+      <div class="rowacts" style="padding:8px 0 0;flex-wrap:wrap">
+        <button type="button" class="btn ghost" id="imp">Загрузить файл</button>
+        <button type="button" class="btn ghost" id="wipe">Сбросить мои правки</button>
+      </div>
+      <input type="file" id="file" accept=".json,.csv,text/csv,application/json" hidden>
+      <p class="note">Читает JSON и CSV. JSON выгружайте после каждого обхода — этим файлом обновляется общая база
+        части (<span class="mono">data/sources.json</span> в репозитории).</p>
+    </fieldset>
+    <fieldset><legend>Общая база</legend>
+      <p class="note" id="basestate">Загрузка…</p>
+      <div class="rowacts" style="padding:8px 0 0"><button type="button" class="btn ghost" id="reload">Обновить общую базу</button></div>
+    </fieldset>
+    <fieldset><legend>Загрузка из OpenStreetMap</legend>
+      <p class="note" style="margin-top:0">Забирает гидранты и водоисточники, внесённые в OpenStreetMap — в том числе то,
+        что вносили через Karta01. Точки приходят со статусом <b>«не обследован»</b>: координаты нужно
+        подтвердить на местности, состояние в OSM не хранится.</p>
+      <div class="rowacts" style="padding:8px 0 0;flex-wrap:wrap">
+        <button type="button" class="btn" id="osm-view">По видимой карте</button>
+        <button type="button" class="btn" id="osm-all">Весь Апшеронский район</button>
+      </div>
+      <p class="note" id="osmstate"></p>
+      <div class="rowacts" style="padding:8px 0 0;flex-wrap:wrap" id="osm-turbo-row">
+        <button type="button" class="btn ghost" id="osm-turbo" hidden>Открыть запрос в overpass-turbo</button>
+        <button type="button" class="btn ghost" id="osm-copy">Скопировать запрос</button>
+      </div>
+      <p class="note">Если сервер недоступен из вашей сети: откройте запрос в overpass-turbo,
+        нажмите «Экспорт → данные → GeoJSON», сохраните файл и загрузите его кнопкой
+        «Загрузить файл» выше — результат будет тот же.</p>
+    </fieldset>
+  </form>
+</section>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+'use strict';
+var K_LOCAL='ppv:local:v2', K_WHO='ppv:who:v1';
+var APSH=[44.4620,39.7300];
+var TYPE={'ПГ':{cls:'',lab:'ПГ',full:'Пожарный гидрант'},'ПВ':{cls:'water',lab:'ПВ',full:'Пожарный водоём'},
+  'ПИРС':{cls:'water',lab:'ПИРС',full:'Пирс'},'БАШ':{cls:'water',lab:'БАШ',full:'Водонапорная башня'},
+  'ЕСТ':{cls:'water',lab:'ЕСТ',full:'Естественный водоисточник'}};
+var CHECK_DAYS=183; // проверка два раза в год
+
+var base=[], local={edits:{},deleted:[],added:[]}, points=[];
+var me=null, aim=null, map=null, layer=null, meM=null, aimM=null, mode=null, who='';
+var $=function(i){return document.getElementById(i)};
+
+/* ——— хранилище: работает и как артефакт, и как обычный сайт ——— */
+var store={
+  get:async function(k){
+    if(window.storage&&window.storage.get){ try{var r=await window.storage.get(k);return r&&r.value||null}catch(e){return null} }
+    try{return localStorage.getItem(k)}catch(e){return null}
+  },
+  set:async function(k,v){
+    if(window.storage&&window.storage.set){ try{await window.storage.set(k,v);return true}catch(e){} }
+    try{localStorage.setItem(k,v);return true}catch(e){return false}
+  }
+};
+
+function toast(m){var t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.remove()},2600)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function stRu(s){return s==='bad'?'неисправен':(s==='hold'?'ограниченно годен':(s==='new'?'НЕ ОБСЛЕДОВАН':'исправен'))}
+function daysSince(d){ if(!d)return null; var t=Date.parse(d); if(isNaN(t))return null; return Math.floor((Date.now()-t)/86400000) }
+
+/* ——— расстояние ——— */
+function dist(a,b,c,d){var R=6371000,p=Math.PI/180,f1=a*p,f2=c*p,df=(c-a)*p,dl=(d-b)*p;
+  var s=Math.sin(df/2)*Math.sin(df/2)+Math.cos(f1)*Math.cos(f2)*Math.sin(dl/2)*Math.sin(dl/2);
+  return Math.round(2*R*Math.asin(Math.sqrt(s)))}
+function fmtD(m){return m>=1000?(m/1000).toFixed(1).replace('.',','):String(m)}
+function unitD(m){return m>=1000?'км':'м'}
+
+/* ——— слияние общей базы и локальных правок ——— */
+function merge(){
+  var del={}; local.deleted.forEach(function(i){del[i]=1});
+  var out=[];
+  base.forEach(function(b){ if(del[b.id])return; out.push(local.edits[b.id]||b) });
+  local.added.forEach(function(a){ if(!del[a.id]) out.push(a) });
+  points=out;
+}
+async function saveLocal(){
+  var ok=await store.set(K_LOCAL,JSON.stringify(local));
+  if(!ok) toast('Не удалось сохранить. Выгрузите JSON.');
+}
+function isLocal(id){ return !!local.edits[id] || local.added.some(function(a){return a.id===id}) }
+function putPoint(rec){
+  var inBase=base.some(function(b){return b.id===rec.id});
+  if(inBase){ local.edits[rec.id]=rec; }
+  else{
+    var i=local.added.findIndex(function(a){return a.id===rec.id});
+    if(i>=0) local.added[i]=rec; else local.added.push(rec);
+  }
+  local.deleted=local.deleted.filter(function(x){return x!==rec.id});
+  merge();
+}
+function dropPoint(id){
+  delete local.edits[id];
+  local.added=local.added.filter(function(a){return a.id!==id});
+  if(base.some(function(b){return b.id===id}) && local.deleted.indexOf(id)<0) local.deleted.push(id);
+  merge();
+}
+
+/* ——— загрузка ——— */
+async function boot(){
+  who=(await store.get(K_WHO))||''; $('f-who').value=who;
+  try{ var raw=await store.get(K_LOCAL); if(raw){ var o=JSON.parse(raw);
+    local={edits:o.edits||{},deleted:o.deleted||[],added:o.added||[]}; } }catch(e){}
+  await loadBase();
+  merge(); render(); stats(); drawMarkers();
+}
+async function loadBase(){
+  try{
+    var r=await fetch('data/sources.json',{cache:'no-cache'});
+    if(!r.ok) throw 0;
+    var j=await r.json();
+    base=(Array.isArray(j)?j:(j.points||[])).filter(function(p){return p&&p.lat&&p.lon});
+    $('basestate').textContent='Общая база: '+base.length+' записей. Обновляется через файл data/sources.json в репозитории.';
+  }catch(e){
+    base=[];
+    $('basestate').textContent='Общая база не загружена — работает только то, что внесено на этом устройстве.';
+  }
+}
+
+/* ——— GPS ——— */
+function gps(){
+  if(!navigator.geolocation){ fail('геолокация не поддерживается'); return }
+  navigator.geolocation.watchPosition(function(p){
+    me={lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy)};
+    if(!aim){ $('dot').className='dot live'; $('gpstext').textContent=me.lat.toFixed(5)+'  '+me.lon.toFixed(5)+'  ±'+me.acc+' м' }
+    drawMe(); render();
+  },function(){ fail('GPS недоступен — задайте точку нажатием на карте') },
+  {enableHighAccuracy:true,maximumAge:5000,timeout:15000});
+}
+function fail(m){ if(me&&me.manual)return; $('dot').className='dot err'; $('gpstext').textContent=m }
+function setMe(lat,lon){ me={lat:lat,lon:lon,acc:0,manual:true};
+  $('dot').className='dot live'; $('gpstext').textContent=lat.toFixed(5)+'  '+lon.toFixed(5)+'  задано вручную';
+  drawMe(); render() }
+function setAim(lat,lon){
+  aim={lat:lat,lon:lon};
+  $('aimbar').hidden=false;
+  $('aimtext').textContent=lat.toFixed(5)+', '+lon.toFixed(5);
+  $('listtitle').textContent='Ближайшие к месту вызова';
+  $('dot').className='dot aim';
+  $('gpstext').textContent='расстояния считаются от места вызова';
+  drawAim(); render();
+}
+$('aimclear').onclick=function(){
+  aim=null; $('aimbar').hidden=true; $('listtitle').textContent='Ближайшие источники';
+  if(aimM&&map) map.removeLayer(aimM); aimM=null;
+  if(me){$('dot').className='dot live';$('gpstext').textContent=me.lat.toFixed(5)+'  '+me.lon.toFixed(5)}
+  render();
+};
+
+/* ——— карта ——— */
+function initMap(){
+  if(map) return;
+  map=L.map('map').setView(me?[me.lat,me.lon]:APSH,14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  layer=L.layerGroup().addTo(map);
+  map.on('click',function(e){
+    var la=e.latlng.lat, lo=e.latlng.lng;
+    if(mode==='coord'){ $('f-lat').value=la.toFixed(6); $('f-lon').value=lo.toFixed(6); mode=null; hint(); tab('add'); toast('Координаты записаны в карточку'); }
+    else if(mode==='aim'){ setAim(la,lo); mode=null; hint(); tab('go'); toast('Место вызова задано'); }
+    else { setMe(la,lo); toast('Ваше положение задано'); }
+  });
+  drawMarkers(); drawMe(); drawAim();
+}
+function hint(){
+  $('maphint').textContent = mode==='coord' ? 'Нажмите точку источника — координаты уйдут в карточку.'
+    : mode==='aim' ? 'Нажмите место вызова — расстояния будут считаться от него.'
+    : 'Нажатие на карту задаёт ваше положение, если GPS недоступен.';
+}
+function color(p){ if(p.status==='bad')return'#6B7480'; if(p.status==='hold')return'#E0A200';
+  if(p.status==='new')return'#7A5CA8'; return p.type==='ПГ'?'#D62828':'#2A7FBF' }
+function drawMarkers(){
+  if(!layer)return; layer.clearLayers();
+  points.forEach(function(p){
+    var t=TYPE[p.type]||{lab:'?',full:p.type};
+    var ic=L.divIcon({className:'',iconSize:[26,26],iconAnchor:[13,26],
+      html:'<div class="pin" style="background:'+color(p)+'"><b>'+t.lab+'</b></div>'});
+    L.marker([p.lat,p.lon],{icon:ic}).addTo(layer).bindPopup(
+      '<div class="lp"><b>'+t.full+(p.num?' № '+esc(p.num):'')+'</b><br>'+esc(p.addr||'')+'<br>'+
+      (p.dia?'Ø'+esc(p.dia)+' мм · ':'')+(p.net?esc(p.net)+' · ':'')+(p.vol?esc(p.vol)+' м³ · ':'')+stRu(p.status)+
+      (p.check?'<br>проверен '+esc(p.check):'')+(p.note?'<br><i>'+esc(p.note)+'</i>':'')+
+      '<br><a href="#" data-edit="'+p.id+'">открыть карточку</a></div>');
+  });
+}
+function drawMe(){ if(!map||!me)return; if(meM)map.removeLayer(meM);
+  meM=L.marker([me.lat,me.lon],{icon:L.divIcon({className:'',iconSize:[16,16],html:'<div class="me"></div>'})}).addTo(map) }
+function drawAim(){ if(!map)return; if(aimM){map.removeLayer(aimM);aimM=null} if(!aim)return;
+  aimM=L.marker([aim.lat,aim.lon],{icon:L.divIcon({className:'',iconSize:[22,22],html:'<div class="aimdot"></div>'})}).addTo(map) }
+
+/* ——— список ——— */
+function render(){
+  var origin = aim||me;
+  var onlyOk=$('f-ok').getAttribute('aria-pressed')==='true';
+  var pg=$('f-pg').getAttribute('aria-pressed')==='true';
+  var pv=$('f-pv').getAttribute('aria-pressed')==='true';
+  var q=$('q').value.trim().toLowerCase();
+
+  $('cnt').textContent=points.length?('в базе: '+points.length):'';
+  var box=$('list');
+  if(!points.length){
+    box.innerHTML='<div class="empty"><b>База пуста</b>Откройте «Учёт», встаньте у гидранта и нажмите «Взять с GPS».</div>';
+    return;
+  }
+  var rows=points.filter(function(p){
+    if(onlyOk&&p.status==='bad')return false;
+    if(p.type==='ПГ'?!pg:!pv)return false;
+    if(q){ var hay=((p.addr||'')+' '+(p.num||'')+' '+(p.note||'')).toLowerCase(); if(hay.indexOf(q)<0)return false }
+    return true;
+  });
+  if(origin){ rows.forEach(function(p){p._d=dist(origin.lat,origin.lon,p.lat,p.lon)}); rows.sort(function(a,b){return a._d-b._d}) }
+  rows=rows.slice(0,15);
+
+  if(!rows.length){ box.innerHTML='<div class="empty"><b>Ничего не найдено</b>Измените запрос или снимите фильтры.</div>'; return }
+  if(!origin){ box.innerHTML='<div class="empty"><b>Нет точки отсчёта</b>Включите геолокацию, задайте место вызова или отметьте себя на карте.</div>'; return }
+
+  box.innerHTML=rows.map(function(p){
+    var t=TYPE[p.type]||{cls:'',lab:'?'};
+    var cls=p.status==='bad'?'bad':(p.status==='hold'?'hold':(p.status==='new'?'newp':t.cls));
+    var d=daysSince(p.check);
+    var chk = d==null?'проверка не отмечена':(d>CHECK_DAYS?'проверка просрочена ('+Math.floor(d/30)+' мес.)':'проверен '+d+' дн. назад');
+    var sub=[p.dia?'Ø'+esc(p.dia):'',p.net||'',p.vol?esc(p.vol)+' м³':'',p.flow?esc(p.flow)+' л/с':'',stRu(p.status)].filter(Boolean).join(' · ');
+    return '<div class="plate '+cls+'" data-open="'+p.id+'">'+
+      '<div class="tag"><b>'+t.lab+'</b><i>'+(p.num?'№ '+esc(p.num):'—')+'</i></div>'+
+      '<div class="meta"><div class="addr">'+esc(p.addr||'без адреса')+'</div>'+
+      '<div class="sub">'+esc(sub)+'</div>'+
+      '<div class="sub'+((d==null||d>CHECK_DAYS)?' warn':'')+'">'+chk+'</div></div>'+
+      '<div class="dist">'+fmtD(p._d)+'<small>'+unitD(p._d)+'</small></div></div>'+
+    '<div class="rowacts">'+
+      '<a class="btn primary" href="yandexnavi://build_route_on_map?lat_to='+p.lat+'&lon_to='+p.lon+'">Навигатор</a>'+
+      '<a class="btn" target="_blank" rel="noopener" href="https://yandex.ru/maps/?rtext=~'+p.lat+','+p.lon+'&rtt=auto">Я.Карты</a>'+
+      '<button class="btn ghost" data-edit="'+p.id+'">Карточка</button>'+
+    '</div>';
+  }).join('');
+}
+$('q').oninput=render;
+['f-ok','f-pg','f-pv'].forEach(function(id){ $(id).onclick=function(){
+  this.setAttribute('aria-pressed',this.getAttribute('aria-pressed')==='true'?'false':'true'); render() } });
+$('setaim').onclick=function(){ mode='aim'; hint(); tab('map'); toast('Нажмите на карте место вызова') };
+$('mapaim').onclick=$('setaim').onclick;
+
+document.addEventListener('click',function(e){
+  var ed=e.target.getAttribute&&e.target.getAttribute('data-edit');
+  if(ed){ e.preventDefault(); edit(ed); return }
+  var op=e.target.closest&&e.target.closest('[data-open]');
+  if(op&&!e.target.closest('.rowacts')){
+    var p=points.find(function(x){return x.id===op.getAttribute('data-open')});
+    if(p){ tab('map'); setTimeout(function(){ map.setView([p.lat,p.lon],17) },80) }
+  }
+});
+
+/* ——— вкладки ——— */
+function tab(w){ ['go','map','add','base'].forEach(function(k){
+    $('t-'+k).setAttribute('aria-selected',String(k===w)); $('s-'+k).hidden=(k!==w) });
+  if(w==='map'){ initMap(); setTimeout(function(){map.invalidateSize()},80) }
+  if(w==='base') stats();
+}
+['go','map','add','base'].forEach(function(k){ $('t-'+k).onclick=function(){tab(k)} });
+
+/* ——— форма ——— */
+function clearForm(){
+  ['f-id','f-num','f-addr','f-lat','f-lon','f-dia','f-vol','f-flow','f-note'].forEach(function(i){$(i).value=''});
+  $('f-type').value='ПГ'; $('f-status').value='ok'; $('f-net').value=''; $('f-check').value=''; $('del').hidden=true;
+}
+function edit(id){
+  var p=points.find(function(x){return x.id===id}); if(!p)return;
+  $('f-id').value=p.id; $('f-type').value=p.type||'ПГ'; $('f-num').value=p.num||''; $('f-addr').value=p.addr||'';
+  $('f-status').value=p.status||'ok'; $('f-check').value=p.check||''; $('f-lat').value=p.lat; $('f-lon').value=p.lon;
+  $('f-net').value=p.net||''; $('f-dia').value=p.dia||''; $('f-vol').value=p.vol||''; $('f-flow').value=p.flow||''; $('f-note').value=p.note||'';
+  $('del').hidden=false; tab('add'); window.scrollTo(0,0);
+}
+$('usegps').onclick=function(){
+  if(!me){ toast('Положение неизвестно — откройте «Карта» и отметьте себя'); return }
+  $('f-lat').value=me.lat.toFixed(6); $('f-lon').value=me.lon.toFixed(6);
+  toast('Координаты взяты'+(me.manual?' (вручную)':' с GPS'));
+};
+$('usemap').onclick=function(){ mode='coord'; hint(); tab('map'); toast('Нажмите на карте точку источника') };
+$('reset').onclick=function(){ clearForm(); toast('Карточка очищена') };
+$('del').onclick=async function(){
+  var id=$('f-id').value; if(!id)return;
+  dropPoint(id); await saveLocal(); clearForm(); drawMarkers(); render(); stats(); tab('go'); toast('Запись удалена');
+};
+$('form').onsubmit=async function(e){
+  e.preventDefault();
+  var lat=parseFloat($('f-lat').value), lon=parseFloat($('f-lon').value);
+  if(isNaN(lat)||isNaN(lon)){ toast('Нужны координаты: «Взять с GPS» или «Указать на карте»'); return }
+  var id=$('f-id').value||('p'+Date.now().toString(36));
+  putPoint({id:id,type:$('f-type').value,num:$('f-num').value.trim(),addr:$('f-addr').value.trim(),
+    status:$('f-status').value,check:$('f-check').value,lat:lat,lon:lon,net:$('f-net').value,
+    dia:$('f-dia').value.trim(),vol:$('f-vol').value.trim(),flow:$('f-flow').value.trim(),
+    note:$('f-note').value.trim(),by:who,upd:new Date().toISOString().slice(0,10)});
+  await saveLocal(); clearForm(); drawMarkers(); render(); stats(); tab('go'); toast('Сохранено · всего '+points.length);
+};
+$('f-who').onchange=async function(){ who=this.value.trim(); await store.set(K_WHO,who); toast('Записано: '+(who||'—')) };
+
+/* ——— статистика ——— */
+function stats(){
+  $('st-all').textContent=points.length;
+  $('st-ok').textContent=points.filter(function(p){return p.status==='ok'}).length;
+  $('st-bad').textContent=points.filter(function(p){return p.status==='bad'}).length;
+  $('st-new').textContent=points.filter(function(p){return p.status==='new'}).length;
+  $('st-old').textContent=points.filter(function(p){var d=daysSince(p.check);return d==null||d>CHECK_DAYS}).length;
+  $('st-loc').textContent=Object.keys(local.edits).length+local.added.length+local.deleted.length;
+}
+
+/* ——— обмен ——— */
+function dl(name,text,mime){
+  var b=new Blob([text],{type:mime+';charset=utf-8'}), a=document.createElement('a');
+  a.href=URL.createObjectURL(b); a.download=name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){URL.revokeObjectURL(a.href)},1500);
+}
+var COLS=['id','type','num','addr','lat','lon','status','check','net','dia','vol','flow','note','by','upd'];
+var HEAD=['id','Тип','Номер','Адрес','Широта','Долгота','Состояние','Проверен','Сеть','Диаметр','Объём','Водоотдача','Примечание','Кто','Обновлено'];
+$('exp-json').onclick=function(){ dl('sources.json',JSON.stringify(points,null,1),'application/json'); toast('Файл выгружен') };
+$('exp-csv').onclick=function(){
+  var rows=points.map(function(p){return COLS.map(function(c){
+    var v=c==='status'?stRu(p.status):p[c]; return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'}).join(';')});
+  dl('sources.csv','\ufeff'+HEAD.join(';')+'\r\n'+rows.join('\r\n'),'text/csv'); toast('Файл выгружен');
+};
+$('imp').onclick=function(){ $('file').click() };
+$('file').onchange=function(e){
+  var f=e.target.files[0]; if(!f)return;
+  var r=new FileReader();
+  r.onload=async function(){
+    var txt=String(r.result), arr=null, obj=null;
+    try{ obj=JSON.parse(txt) }catch(err){ obj=null }
+
+    if(obj && obj.elements){                    // сырой ответ Overpass
+      var res=await osmAbsorb(obj.elements);
+      toast('Из файла OSM добавлено: '+res.added+', дублей: '+res.dup); return;
+    }
+    if(obj && obj.type==='FeatureCollection'){  // GeoJSON из overpass-turbo
+      var els=(obj.features||[]).map(function(f){
+        var g=f.geometry||{}, c=null;
+        if(g.type==='Point') c=g.coordinates;
+        else if(g.coordinates){                 // берём центр контура
+          var flat=String(g.coordinates).split(',').map(Number), xs=[], ys=[];
+          for(var k=0;k<flat.length-1;k+=2){ xs.push(flat[k]); ys.push(flat[k+1]) }
+          if(xs.length) c=[xs.reduce(function(a,b){return a+b})/xs.length, ys.reduce(function(a,b){return a+b})/ys.length];
+        }
+        if(!c) return null;
+        return {type:'node', id:(f.id||Math.random().toString(36).slice(2,9)), lat:c[1], lon:c[0], tags:f.properties||{}};
+      }).filter(Boolean);
+      var res2=await osmAbsorb(els);
+      toast('Из GeoJSON добавлено: '+res2.added+', дублей: '+res2.dup); return;
+    }
+
+    if(obj) arr=Array.isArray(obj)?obj:(obj.points||null);
+    if(!arr) arr=parseCSV(txt);
+    if(!arr||!arr.length){ toast('Не разобрал файл. Подходят: JSON и CSV этого приложения, ответ Overpass, GeoJSON'); return }
+    var n=0;
+    arr.forEach(function(p){
+      if(!p||!p.lat||!p.lon)return;
+      p.id=p.id||('i'+Math.random().toString(36).slice(2,9));
+      p.lat=parseFloat(p.lat); p.lon=parseFloat(p.lon);
+      if(isNaN(p.lat)||isNaN(p.lon))return;
+      putPoint(p); n++;
+    });
+    await saveLocal(); drawMarkers(); render(); stats(); toast('Добавлено записей: '+n);
+  };
+  r.readAsText(f,'utf-8'); e.target.value='';
+};
+function parseCSV(txt){
+  var lines=txt.replace(/^\ufeff/,'').split(/\r?\n/).filter(function(l){return l.trim()});
+  if(lines.length<2) return null;
+  var sep=(lines[0].split(';').length>lines[0].split(',').length)?';':',';
+  var out=[];
+  for(var i=1;i<lines.length;i++){
+    var cells=lines[i].split(sep).map(function(c){return c.trim().replace(/^"|"$/g,'').replace(/""/g,'"')});
+    var o={}; COLS.forEach(function(c,j){ o[c]=cells[j]||'' });
+    if(o.status==='неисправен')o.status='bad'; else if(o.status&&o.status.indexOf('огранич')===0)o.status='hold'; else o.status='ok';
+    out.push(o);
+  }
+  return out;
+}
+/* ——— импорт из OpenStreetMap через Overpass API ——— */
+var APSH_BBOX=[43.95,39.25,44.70,40.10]; // юг, запад, север, восток
+var OVERPASS=[
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter', // зеркало VK — обычно доступно из РФ
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.osm.jp/api/interpreter'
+];
+
+function osmType(t){
+  var e=t.emergency||'', f=t['fire_hydrant:type']||'';
+  if(e==='fire_hydrant') return f==='pond'?'ПВ':'ПГ';
+  if(e==='water_tank'||e==='fire_water_pond') return 'ПВ';
+  if(e==='suction_point') return 'ПИРС';
+  if(t.man_made==='water_tower') return 'БАШ';
+  return 'ПГ';
+}
+function osmAddr(t){
+  var s=t['addr:street']||'', h=t['addr:housenumber']||'';
+  if(s) return (s+(h?', '+h:'')).trim();
+  return t.name||t.description||t['addr:full']||'';
+}
+function osmNote(t){
+  var bits=[];
+  if(t['fire_hydrant:type']==='underground') bits.push('подземный');
+  if(t['fire_hydrant:type']==='pillar') bits.push('наземный');
+  if(t['fire_hydrant:position']) bits.push('расположение: '+t['fire_hydrant:position']);
+  if(t['couplings']) bits.push('патрубков: '+t.couplings);
+  if(t.description) bits.push(t.description);
+  if(t.note) bits.push(t.note);
+  bits.push('Импорт OSM — проверить на местности');
+  return bits.join('. ');
+}
+function near(lat,lon){
+  return points.some(function(p){ return dist(p.lat,p.lon,lat,lon)<15 });
+}
+function osmQuery(bbox){
+  var b=bbox.join(',');
+  return '[out:json][timeout:90];('+
+    'node["emergency"="fire_hydrant"]('+b+');'+
+    'node["emergency"="water_tank"]('+b+');'+
+    'way["emergency"="water_tank"]('+b+');'+
+    'node["emergency"="fire_water_pond"]('+b+');'+
+    'way["emergency"="fire_water_pond"]('+b+');'+
+    'node["emergency"="suction_point"]('+b+');'+
+    'node["man_made"="water_tower"]('+b+');'+
+    ');out center tags;';
+}
+/* превращает ответ Overpass в наши записи */
+async function osmAbsorb(els){
+  var added=0, dup=0;
+  for(var j=0;j<els.length;j++){
+    var el=els[j], t=el.tags||{};
+    var la=el.lat!=null?el.lat:(el.center&&el.center.lat), lo=el.lon!=null?el.lon:(el.center&&el.center.lon);
+    if(la==null||lo==null) continue;
+    var id='osm-'+(el.type||'node')+'-'+el.id;
+    if(points.some(function(p){return p.id===id})){ dup++; continue }
+    if(near(la,lo)){ dup++; continue }
+    putPoint({id:id,type:osmType(t),num:t.ref||'',addr:osmAddr(t),status:'new',check:'',
+      lat:+(+la).toFixed(6),lon:+(+lo).toFixed(6),net:'',
+      dia:t['fire_hydrant:diameter']||t.diameter||'',
+      vol:t.water_volume||t['water_tank:volume']||'',
+      flow:t['fire_hydrant:flow_capacity']||'',
+      note:osmNote(t),by:'OpenStreetMap',upd:new Date().toISOString().slice(0,10)});
+    added++;
+  }
+  await saveLocal(); drawMarkers(); render(); stats();
+  return {added:added,dup:dup};
+}
+var lastQuery='';
+async function osmImport(bbox){
+  var q=lastQuery=osmQuery(bbox);
+  $('osm-turbo').hidden=false;
+
+  if(location.protocol==='file:'){
+    $('osmstate').innerHTML='Файл открыт с диска (file://) — браузер запрещает такие запросы. '+
+      'Загрузка из OSM работает только когда приложение открыто по адресу http/https, то есть после размещения на GitHub Pages. '+
+      'Пока можно воспользоваться кнопкой «Открыть запрос в overpass-turbo» ниже.';
+    return;
+  }
+
+  var log=[], data=null;
+  for(var i=0;i<OVERPASS.length && !data;i++){
+    var host=OVERPASS[i].split('/')[2];
+    $('osmstate').textContent='Запрос к '+host+'… ('+(i+1)+' из '+OVERPASS.length+')';
+    // сначала POST, затем GET — часть сетей и прокси режут POST
+    for(var m=0;m<2 && !data;m++){
+      try{
+        var r = m===0
+          ? await fetch(OVERPASS[i],{method:'POST',body:'data='+encodeURIComponent(q),
+              headers:{'Content-Type':'application/x-www-form-urlencoded'}})
+          : await fetch(OVERPASS[i]+'?data='+encodeURIComponent(q));
+        if(!r.ok){ log.push(host+': ответ '+r.status); continue }
+        data=await r.json();
+      }catch(e){
+        log.push(host+': '+(m===0?'POST':'GET')+' — '+(e&&e.message?e.message:'соединение не установлено'));
+      }
+    }
+  }
+
+  if(!data){
+    $('osmstate').innerHTML='Ни один сервер не ответил.<br><span style="opacity:.75">'+
+      esc(log.join(' · '))+'</span><br><br>Что попробовать: другая сеть (мобильный интернет вместо рабочего Wi-Fi), '+
+      'VPN, либо ручной путь — кнопка «Открыть запрос в overpass-turbo», там «Экспорт → скачать как GeoJSON/raw data», '+
+      'потом сюда через «Загрузить файл».';
+    toast('Импорт не выполнен');
+    return;
+  }
+
+  var res=await osmAbsorb(data.elements||[]);
+  $('osmstate').textContent='Загружено новых: '+res.added+'. Пропущено как дубли: '+res.dup+
+    '. Все новые точки помечены «не обследован» — подтвердите их при обходе.';
+  toast(res.added?('Добавлено источников: '+res.added):'Новых точек по этому участку в OSM нет');
+}
+$('osm-all').onclick=function(){ osmImport(APSH_BBOX) };
+$('osm-view').onclick=function(){
+  if(!map){ toast('Сначала откройте «Карта» и наведите на нужный участок'); return }
+  var b=map.getBounds();
+  osmImport([b.getSouth().toFixed(5),b.getWest().toFixed(5),b.getNorth().toFixed(5),b.getEast().toFixed(5)]);
+};
+$('osm-turbo').onclick=function(){
+  var q=lastQuery||osmQuery(APSH_BBOX);
+  window.open('https://overpass-turbo.eu/?Q='+encodeURIComponent(q)+'&R','_blank','noopener');
+};
+$('osm-copy').onclick=function(){
+  var q=lastQuery||osmQuery(APSH_BBOX);
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(q).then(function(){toast('Запрос скопирован')},function(){prompt('Скопируйте запрос:',q)});
+  } else prompt('Скопируйте запрос:',q);
+};
+
+$('wipe').onclick=async function(){
+  if(!confirm('Удалить все правки, сделанные на этом устройстве? Общая база останется.'))return;
+  local={edits:{},deleted:[],added:[]}; await saveLocal(); merge(); drawMarkers(); render(); stats(); toast('Локальные правки сброшены');
+};
+$('reload').onclick=async function(){ await loadBase(); merge(); drawMarkers(); render(); stats(); toast('Общая база обновлена') };
+$('center').onclick=function(){ if(me)map.setView([me.lat,me.lon],16); else toast('Положение неизвестно') };
+$('fit').onclick=function(){ if(!points.length){map.setView(APSH,13);return}
+  map.fitBounds(L.latLngBounds(points.map(function(p){return[p.lat,p.lon]})),{padding:[40,40]}) };
+
+if('serviceWorker' in navigator){ window.addEventListener('load',function(){ navigator.serviceWorker.register('sw.js').catch(function(){}) }) }
+
+clearForm(); hint(); gps(); boot();
+})();
+</script>
+</body>
+</html>

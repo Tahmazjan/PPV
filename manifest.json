@@ -1,0 +1,15 @@
+{
+  "name": "ППВ — источники противопожарного водоснабжения",
+  "short_name": "ППВ",
+  "description": "Гидранты и водоёмы Апшеронского района: ближайшие источники, состояние, маршрут.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#15181C",
+  "theme_color": "#15181C",
+  "lang": "ru",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
