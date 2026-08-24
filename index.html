@@ -349,21 +349,51 @@ async function boot(){
 }
 async function loadBase(){
   var url='data/sources.json?t='+Date.now();  // метка времени обходит кеш браузера и CDN
+  var txt='';
   try{
-    var r=await fetch(url,{cache:'reload'});
-    if(!r.ok) throw new Error('сервер ответил '+r.status);
-    var j=await r.json();
-    base=(Array.isArray(j)?j:(j.points||[])).filter(function(p){return p&&p.lat&&p.lon});
-    $('basestate').innerHTML='Общая база: <b>'+base.length+'</b> записей. Файл прочитан '+
-      new Date().toLocaleTimeString('ru-RU')+'.'+
-      (base.length?'':'<br>Файл на сервере есть, но он пустой — в нём нет ни одной точки. '+
-        'Выгрузите JSON с того устройства, где точки внесены, и замените им data/sources.json в репозитории.');
+    var r=await fetch(url);                   // без опции cache — Safari на неё ругается
+    if(!r.ok) throw new Error('сервер ответил '+r.status+(r.status===404?' — файла по этому пути нет':''));
+    txt=(await r.text()).replace(/^\ufeff/,'').trim();
   }catch(e){
     base=[];
     $('basestate').innerHTML='<b>Общая база не загружена.</b> '+esc(e&&e.message?e.message:'файл недоступен')+
-      '.<br>Проверьте, открывается ли по адресу вашего сайта путь <span class="mono">data/sources.json</span>. '+
-      'Работает только то, что внесено на этом устройстве.';
+      '.<br>Откройте в браузере <span class="mono">'+esc(location.origin+location.pathname.replace(/[^\/]*$/,''))+
+      'data/sources.json</span> — увидите, есть ли файл на сервере.';
+    return;
   }
+
+  var j=null, how='';
+  if(txt.charAt(0)==='<'){
+    base=[];
+    $('basestate').innerHTML='<b>По этому адресу лежит не файл базы, а веб-страница.</b> '+
+      'Обычно это значит, что папка <span class="mono">data</span> или файл '+
+      '<span class="mono">sources.json</span> в репозиторий не загрузились — проверьте, видны ли они на странице репозитория. '+
+      'Имена важны: строчными буквами, точно так же.';
+    return;
+  }
+  try{ j=JSON.parse(txt); how='JSON' }
+  catch(e){
+    var csv=parseCSV(txt);                    // вдруг под этим именем лежит таблица
+    if(csv&&csv.length){ j=csv; how='CSV' }
+    else{
+      base=[];
+      $('basestate').innerHTML='<b>Файл прочитан, но это не JSON.</b> Начало файла: '+
+        '<span class="mono">'+esc(txt.slice(0,80))+'…</span><br>'+
+        'Замените его файлом, который выгружает кнопка «Выгрузить JSON».';
+      return;
+    }
+  }
+
+  base=(Array.isArray(j)?j:(j.points||[])).map(function(p){
+    if(!p) return null;
+    var la=parseFloat(p.lat), lo=parseFloat(p.lon);
+    if(isNaN(la)||isNaN(lo)) return null;
+    p.lat=la; p.lon=lo; return p;
+  }).filter(Boolean);
+  $('basestate').innerHTML='Общая база: <b>'+base.length+'</b> записей ('+how+'), прочитано в '+
+    new Date().toLocaleTimeString('ru-RU')+'.'+
+    (base.length?'':'<br>Файл на сервере есть, но точек в нём нет. Выгрузите JSON с того устройства, '+
+      'где точки внесены, и замените им data/sources.json в репозитории.');
 }
 
 /* ——— GPS ——— */
@@ -766,7 +796,7 @@ $('center').onclick=function(){ if(me)map.setView([me.lat,me.lon],16); else toas
 $('fit').onclick=function(){ if(!points.length){map.setView(APSH,13);return}
   map.fitBounds(L.latLngBounds(points.map(function(p){return[p.lat,p.lon]})),{padding:[40,40]}) };
 
-var APP_VER='2026-08-24.3';
+var APP_VER='2026-08-24.4';
 if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('sw.js').then(function(reg){
