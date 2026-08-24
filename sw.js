@@ -4,9 +4,9 @@
    потом доступен без связи. Данные (data/sources.json) обновляются при наличии сети,
    при её отсутствии берутся из кеша. */
 
-var SHELL = 'ppv-shell-v2';
+var SHELL = 'ppv-shell-v3';
 var TILES = 'ppv-tiles-v1';
-var DATA  = 'ppv-data-v1';
+var DATA  = 'ppv-data-v2';
 var TILE_LIMIT = 3000;
 
 var ASSETS = [
@@ -84,17 +84,17 @@ self.addEventListener('fetch', function(e){
     return;
   }
 
-  // остальное — кеш, затем сеть
+  // оболочка приложения — сначала сеть, кеш только как запасной вариант при её отсутствии
   e.respondWith(
-    caches.match(req).then(function(hit){
-      return hit || fetch(req).then(function(res){
-        if(res && res.status === 200){
-          var copy = res.clone();
-          caches.open(SHELL).then(function(c){ c.put(req, copy); });
-        }
-        return res;
-      }).catch(function(){
-        return caches.match('./index.html');
+    fetch(req).then(function(res){
+      if(res && res.status === 200 && res.type !== 'opaque'){
+        var copy = res.clone();
+        caches.open(SHELL).then(function(c){ c.put(req, copy); });
+      }
+      return res;
+    }).catch(function(){
+      return caches.match(req).then(function(hit){
+        return hit || caches.match('./index.html');
       });
     })
   );
